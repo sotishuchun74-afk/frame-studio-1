@@ -129,22 +129,27 @@ class MainActivity : AppCompatActivity() {
                 val durationMs = retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_DURATION
                 )?.toLongOrNull() ?: 0L
-                val totalFrames = ((durationMs / 1000.0) * fps).toInt().coerceAtLeast(1)
+                val durationUs = durationMs * 1000L
+                val requestedFrames = ((durationMs / 1000.0) * fps).toInt().coerceAtLeast(1)
 
                 val outDir = File(getExternalFilesDir(null), "frames_${System.currentTimeMillis()}")
                 outDir.mkdirs()
 
-                for (i in 0 until totalFrames) {
-                    val timeUs = (i * 1_000_000L) / fps
+                var savedCount = 0
+                for (i in 0 until requestedFrames) {
+                    // clamp to avoid requesting a timestamp past the actual duration,
+                    // which was causing the last frame(s) to silently fail
+                    val timeUs = ((i * 1_000_000L) / fps).coerceAtMost((durationUs - 1000L).coerceAtLeast(0L))
                     val bmp = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                     if (bmp != null) {
-                        val f = File(outDir, "frame_%05d.png".format(i))
+                        val f = File(outDir, "frame_%05d.png".format(savedCount))
                         FileOutputStream(f).use { fos -> bmp.compress(Bitmap.CompressFormat.PNG, 100, fos) }
+                        savedCount++
                     }
-                    val pct = ((i + 1) * 100 / totalFrames)
+                    val pct = ((i + 1) * 100 / requestedFrames)
                     runOnUiThread {
                         progress1.progress = pct
-                        tvStatus1.text = "Kadr ${i + 1}/$totalFrames"
+                        tvStatus1.text = "Kadr ${i + 1}/$requestedFrames"
                     }
                 }
                 retriever.release()
@@ -153,7 +158,8 @@ class MainActivity : AppCompatActivity() {
                 zipFolder(outDir, zipFile)
 
                 runOnUiThread {
-                    tvStatus1.text = "Tayyor! $totalFrames ta kadr"
+                    // report the ACTUAL number of frames saved, not the requested count
+                    tvStatus1.text = "Tayyor! $savedCount ta kadr saqlandi"
                     btnExtract.isEnabled = true
                     shareFile(zipFile, "application/zip")
                 }
@@ -286,15 +292,37 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        for ((i, uri) in images.withIndex()) {
-            val bmp = if (i == 0) firstBmp else loadBitmap(uri)
+        // Pre-decode all bitmaps first so per-frame timing below isn't affected
+        // by variable decode time (this mirrors the fix used for the browser version).
+        val decodedBitmaps = ArrayList<Bitmap>(images.size)
+        decodedBitmaps.add(firstBmp)
+        for (i in 1 until images.size) {
+            decodedBitmaps.add(loadBitmap(images[i]))
+            onProgress((i * 10 / images.size), "Kadrlar tayyorlanmoqda ${i + 1}/${images.size}")
+        }
+
+        // Surface-input MediaCodec derives each frame's presentation timestamp from
+        // the real wall-clock time it was submitted (System.nanoTime()), NOT from
+        // KEY_FRAME_RATE. Without explicit pacing here, all frames get submitted
+        // almost instantly, producing a video that is far too short. We pace each
+        // frame submission to the target FPS using a drift-corrected sleep.
+        val frameDurationNs = 1_000_000_000L / fps
+        val startTimeNs = System.nanoTime()
+        for (i in decodedBitmaps.indices) {
+            val bmp = decodedBitmaps[i]
             val scaled = if (bmp.width != width || bmp.height != height)
                 Bitmap.createScaledBitmap(bmp, width, height, true) else bmp
             val canvas = inputSurface.lockCanvas(null)
             canvas.drawBitmap(scaled, 0f, 0f, null)
             inputSurface.unlockCanvasAndPost(canvas)
             drainEncoder(false)
-            onProgress(((i + 1) * 80 / images.size), "Kadr yozilmoqda ${i + 1}/${images.size}")
+            onProgress(10 + ((i + 1) * 70 / decodedBitmaps.size), "Kadr yozilmoqda ${i + 1}/${decodedBitmaps.size}")
+
+            val targetNs = startTimeNs + (i + 1) * frameDurationNs
+            val waitNs = targetNs - System.nanoTime()
+            if (waitNs > 0) {
+                Thread.sleep(waitNs / 1_000_000, (waitNs % 1_000_000).toInt())
+            }
         }
         drainEncoder(true)
 
