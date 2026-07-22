@@ -45,7 +45,7 @@ model.load_state_dict(state_dict, strict=True)
 model.eval()
 
 print("Exporting to ONNX...")
-dummy_input = torch.randn(1, 3, 256, 256)
+dummy_input = torch.randn(1, 3, 128, 128)
 torch.onnx.export(
     model,
     dummy_input,
