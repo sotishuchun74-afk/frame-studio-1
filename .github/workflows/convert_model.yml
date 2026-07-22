@@ -1,0 +1,27 @@
+name: Convert Model to ONNX
+
+on:
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run conversion
+        run: python convert_model.py
+
+      - name: Upload ONNX model
+        uses: actions/upload-artifact@v4
+        with:
+          name: realesr-animevideov3-onnx
+          path: realesr-animevideov3.onnx
