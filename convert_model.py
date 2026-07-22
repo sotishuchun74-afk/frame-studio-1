@@ -7,16 +7,26 @@ MODEL_URL = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/r
 PTH_PATH = "realesr-animevideov3.pth"
 ONNX_PATH = "realesr-animevideov3.onnx"
 
+class PReLUDecomposed(nn.Module):
+    def __init__(self, num_parameters):
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(num_parameters) * 0.25)
+
+    def forward(self, x):
+        pos = torch.relu(x)
+        neg = -torch.relu(-x) * self.weight.view(1, -1, 1, 1)
+        return pos + neg
+
 class SRVGGNetCompact(nn.Module):
-    def __init__(self, num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4, act_type='prelu'):
+    def __init__(self, num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4):
         super(SRVGGNetCompact, self).__init__()
         self.upscale = upscale
         self.body = nn.ModuleList()
         self.body.append(nn.Conv2d(num_in_ch, num_feat, 3, 1, 1))
-        self.body.append(nn.PReLU(num_parameters=num_feat))
+        self.body.append(PReLUDecomposed(num_feat))
         for _ in range(num_conv):
             self.body.append(nn.Conv2d(num_feat, num_feat, 3, 1, 1))
-            self.body.append(nn.PReLU(num_parameters=num_feat))
+            self.body.append(PReLUDecomposed(num_feat))
         self.body.append(nn.Conv2d(num_feat, num_out_ch * upscale * upscale, 3, 1, 1))
         self.upsampler = nn.PixelShuffle(upscale)
 
@@ -33,7 +43,7 @@ print("Downloading original .pth model...")
 urllib.request.urlretrieve(MODEL_URL, PTH_PATH)
 
 print("Building model architecture...")
-model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4, act_type='prelu')
+model = SRVGGNetCompact(num_in_ch=3, num_out_ch=3, num_feat=64, num_conv=16, upscale=4)
 
 print("Loading weights...")
 state_dict = torch.load(PTH_PATH, map_location='cpu')
