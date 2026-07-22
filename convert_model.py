@@ -45,14 +45,13 @@ model.load_state_dict(state_dict, strict=True)
 model.eval()
 
 print("Exporting to ONNX...")
-dummy_input = torch.randn(1, 3, 128, 128)
+dummy_input = torch.randn(1, 3, 256, 256)
 torch.onnx.export(
     model,
     dummy_input,
     ONNX_PATH,
     input_names=['input'],
     output_names=['output'],
-    dynamic_axes={'input': {2: 'height', 3: 'width'}, 'output': {2: 'height', 3: 'width'}},
-    opset_version=13
+    opset_version=11
 )
 print("Done! Saved to", ONNX_PATH)
