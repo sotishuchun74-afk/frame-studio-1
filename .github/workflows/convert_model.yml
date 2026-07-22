@@ -15,8 +15,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
-
+        run: pip install torch onnx onnxscript --index-url https://download.pytorch.org/whl/cpu
+        
       - name: Run conversion
         run: python convert_model.py
 
